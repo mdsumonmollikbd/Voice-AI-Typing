@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bangla Voice Typing</title>
+  <style>
+    body {
+      font-family: 'Noto Sans Bengali', sans-serif;
+      background: #eaeef3;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+
+    /* Google Docs Paper */
+    .paper {
+      background: #fff;
+      width: 100%;
+      max-width: 800px;
+      min-height: 1000px;
+      margin: 40px auto;
+      padding: 60px 80px;
+      border-radius: 6px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      position: relative;
+    }
+
+    .output {
+      min-height: 600px;
+      font-size: 18px;
+      line-height: 1.8;
+      word-wrap: break-word;
+      outline: none;
+    }
+
+    /* Copy Button */
+    .copy-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: #f1f3f4;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      transition: background 0.3s ease;
+    }
+    .copy-btn:hover { background: #e0e0e0; }
+    .copy-btn svg { width: 18px; height: 18px; fill: #333; }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      z-index: 2000;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(-10px); }
+
+    /* Mic Button */
+    .mic-btn {
+      position: fixed;
+      bottom: 30px;
+      left: 30px; /* ← বাম পাশে */
+      width: 80px; /* বড় করা হলো */
+      height: 80px;
+      border-radius: 50%;
+      border: none;
+      background: #0984e3; /* Idle color: নীল */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+    .mic-btn img { width: 36px; height: 36px; }
+    .mic-btn.active {
+      background: #d63031; /* Active হলে লাল */
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(214,48,49, 0.7); }
+      70% { box-shadow: 0 0 0 25px rgba(214,48,49, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(214,48,49, 0); }
+    }
+
+    @media (max-width: 768px) {
+      .paper { padding: 30px 20px; margin: 20px; }
+      .output { font-size: 16px; }
+      .mic-btn { width: 65px; height: 65px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="paper">
+    <!-- Copy Button -->
+    <button class="copy-btn" id="copyBtn">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 
+        0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 
+        2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+      </svg>
+    </button>
+    <div class="output" id="output" contenteditable="true"></div>
+  </div>
+
+  <!-- Floating Mic -->
+  <button class="mic-btn" id="micBtn">
+    <img src="https://img.icons8.com/ios-filled/50/ffffff/microphone.png" alt="mic">
+  </button>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">✅ টেক্সট কপি করা হয়েছে</div>
+
+  <script>
+    const micBtn = document.getElementById("micBtn");
+    const output = document.getElementById("output");
+    const copyBtn = document.getElementById("copyBtn");
+    const toast = document.getElementById("toast");
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "bn-BD";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    let isRecording = false;
+    let bufferQueue = [];
+    let typing = false;
+
+    micBtn.addEventListener("click", () => {
+      if (isRecording) {
+        recognition.stop();
+        micBtn.classList.remove("active");
+        micBtn.style.background = "#0984e3"; // নীল idle
+        isRecording = false;
+      } else {
+        recognition.start();
+        micBtn.classList.add("active");
+        isRecording = true;
+      }
+    });
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        let res = event.results[i];
+        if (res.isFinal) {
+          transcript += res[0].transcript;
+        }
+      }
+      if (transcript) {
+        bufferQueue.push(transcript + " ");
+        if (!typing) processQueue();
+      }
+    };
+
+    recognition.onend = () => {
+      micBtn.classList.remove("active");
+      micBtn.style.background = "#0984e3"; // বন্ধ হলে আবার নীল
+      isRecording = false;
+    };
+
+    // Copy button with toast
+    copyBtn.addEventListener("click", () => {
+      const text = output.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast("✅ টেক্সট কপি করা হয়েছে");
+      });
+    });
+
+    function showToast(message) {
+      toast.innerText = message;
+      toast.classList.add("show");
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 2000);
+    }
+
+    // Typing effect
+    function processQueue() {
+      if (bufferQueue.length === 0) {
+        typing = false;
+        return;
+      }
+      typing = true;
+      let text = bufferQueue.shift();
+      let i = 0;
+
+      function typeChar() {
+        if (i < text.length) {
+          insertAtCursor(text.charAt(i));
+          i++;
+          setTimeout(typeChar, 60);
+        } else {
+          processQueue();
+        }
+      }
+      typeChar();
+    }
+
+    // Helper: কার্সরের জায়গায় টেক্সট বসানো
+    function insertAtCursor(text) {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) {
+        output.focus();
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(text));
+      range.collapse(false);
+    }
+  </script>
+</body>
+</html>
